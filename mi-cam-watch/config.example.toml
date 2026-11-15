@@ -1,0 +1,31 @@
+# Copy to config.toml (git-ignored) and edit.
+
+fps = 4                 # frames analysed per second, per camera
+retain_days = 14        # snapshots older than this are deleted (0 = keep forever)
+
+[detector]
+model = "yolox_s"       # "yolox_s" (accurate) | "yolox_tiny" (fast, confuses dogs/cats) | path to .onnx
+confidence = 0.45       # raise if you get false alerts, lower if it misses distant subjects
+classes = ["person", "dog", "cat", "bird", "horse", "sheep", "cow"]
+
+[web]
+enabled = true
+host = "127.0.0.1"      # "0.0.0.0" exposes the dashboard (no login!) to your whole LAN
+port = 8765
+
+# Optional push notifications with the snapshot attached.
+# [notify.ntfy]
+# url = "https://ntfy.sh/pick-a-long-random-topic-name"
+# [notify.telegram]
+# token = "123456:ABC..."
+# chat_id = "123456789"
+
+# Optional overrides; see Settings in pipeline.py for meanings and defaults.
+# [tuning]
+# cooldown_s = 30
+# min_hits = 3
+
+# One block per camera. The URL is the RTSP stream that go2rtc re-publishes.
+[[camera]]
+name = "yard"
+url = "rtsp://127.0.0.1:8554/yard"
