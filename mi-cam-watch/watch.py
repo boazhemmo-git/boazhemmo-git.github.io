@@ -114,7 +114,7 @@ class EventSink:
         rec = {"time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(wall)),
                "camera": camera, "label": event.label,
                "score": round(event.score, 2), "image": rel}
-        with self._lock, self.log.open("a") as f:
+        with self._lock, self.log.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
         print(f"[event] {rec['time']} {camera}: {event.label} ({rec['score']}) -> {rel}")
         threading.Thread(target=self._notify, args=(rec, path), daemon=True).start()
@@ -122,7 +122,7 @@ class EventSink:
     def recent(self, n: int = 60) -> list[dict]:
         if not self.log.exists():
             return []
-        lines = self.log.read_text().splitlines()[-n:]
+        lines = self.log.read_text(encoding="utf-8").splitlines()[-n:]
         return [json.loads(line) for line in reversed(lines)]
 
     def prune(self):
@@ -244,7 +244,7 @@ def main():
     cfg_path = Path(args.config)
     if not cfg_path.exists():
         raise SystemExit(f"{cfg_path} not found — copy config.example.toml to config.toml")
-    cfg = tomllib.loads(cfg_path.read_text())
+    cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8-sig"))
     cameras = cfg.get("camera", [])
     if not cameras:
         raise SystemExit("config has no [[camera]] entries")
