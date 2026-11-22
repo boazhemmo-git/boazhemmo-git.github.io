@@ -180,11 +180,12 @@ PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=
 <style>body{font:15px system-ui;margin:16px;background:#111;color:#eee}h2{font-size:16px;margin:20px 0 8px}
 .g{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 figure{margin:0;background:#1c1c1c;border-radius:8px;overflow:hidden}img{width:100%;display:block}
+.live-grid{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
 figcaption{padding:6px 10px}small{color:#999}
 img.live{aspect-ratio:4/3;height:auto;object-fit:contain;background:#000;cursor:zoom-in}
 #big{position:fixed;inset:0;background:#000e;display:none;cursor:zoom-out;z-index:9}
 #big img{width:100%;height:100%;object-fit:contain}</style>
-<h2>Live</h2><div class=g>{{LIVE}}</div><div id=big><img alt=""></div><h2>Recent events</h2><div class=g id=events><small>none yet</small></div>
+<h2>Live</h2><div class="g live-grid">{{LIVE}}</div><div id=big><img alt=""></div><h2>Recent events</h2><div class=g id=events><small>none yet</small></div>
 <script>
 // Click a camera to see it full-screen; click again or press Esc to close.
 const big = document.getElementById("big"), bigImg = big.querySelector("img");
