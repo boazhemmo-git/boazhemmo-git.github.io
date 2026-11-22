@@ -98,30 +98,7 @@ class YoloxDetector:
                                             providers=["CPUExecutionProvider"])
         self.device = "cpu"
         if has_gpu and device != "cpu":
-            # DirectML requires these settings and allows one Run at a time per
-            # session; self._lock below serialises the cameras' calls.
-            opts = ort.SessionOptions()
-            opts.enable_mem_pattern = False
-            opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-            try:
-                gpu = ort.InferenceSession(
-                    str(model_path), opts,
-                    providers=["DmlExecutionProvider", "CPUExecutionProvider"])
-                diff = self._compare(self.session, gpu)
-            except Exception as e:
-                if device == "gpu":
-                    raise
-                print(f"GPU unavailable ({type(e).__name__}: {e}); using CPU")
-            else:
-                # Some GPU drivers silently compute wrong results for this model,
-                # so only trust the GPU if it agrees with the CPU.
-                if diff <= GPU_TOLERANCE or device == "gpu":
-                    self.session, self.device = gpu, "gpu"
-                    print(f"GPU self-check: scores differ from CPU by at most {diff:.4f}"
-                          + ("" if diff <= GPU_TOLERANCE else " - forced GPU anyway"))
-                else:
-                    print(f"GPU self-check FAILED: scores differ from CPU by up to "
-                          f"{diff:.2f}; using CPU")
+            self._try_gpu(ort, model_path, forced=device == "gpu")
         # Serialising calls costs nothing measurable on CPU and is required on GPU.
         self._lock = threading.Lock()
         inp = self.session.get_inputs()[0]
@@ -140,6 +117,46 @@ class YoloxDetector:
             strides.append(np.full((gh * gw, 1), s))
         self._grid = np.concatenate(grids).astype(np.float32)
         self._stride = np.concatenate(strides).astype(np.float32)
+
+    def _try_gpu(self, ort, model_path: Path, forced: bool) -> None:
+        """Switch to DirectML if it agrees with the CPU. Some drivers compute
+        wrong results only with onnxruntime's graph optimisations (fused
+        operators), so retry with fewer of them before giving up."""
+        levels = [("full", ort.GraphOptimizationLevel.ORT_ENABLE_ALL),
+                  ("basic", ort.GraphOptimizationLevel.ORT_ENABLE_BASIC),
+                  ("none", ort.GraphOptimizationLevel.ORT_DISABLE_ALL)]
+        best = None
+        for name, level in levels:
+            # DirectML requires these settings and allows one Run at a time per
+            # session; self._lock serialises the cameras' calls.
+            opts = ort.SessionOptions()
+            opts.enable_mem_pattern = False
+            opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+            opts.graph_optimization_level = level
+            try:
+                gpu = ort.InferenceSession(
+                    str(model_path), opts,
+                    providers=["DmlExecutionProvider", "CPUExecutionProvider"])
+                diff = self._compare(self.session, gpu)
+            except Exception as e:
+                if forced:
+                    raise
+                print(f"GPU unavailable ({type(e).__name__}: {e}); using CPU")
+                return
+            if diff <= GPU_TOLERANCE:
+                print(f"GPU self-check passed ({name} optimisation, max difference "
+                      f"{diff:.4f}); using GPU")
+                self.session, self.device = gpu, "gpu"
+                return
+            print(f"GPU self-check failed with {name} optimisation "
+                  f"(scores differ by up to {diff:.2f})")
+            if best is None or diff < best[0]:
+                best = (diff, gpu)
+        if forced:
+            print("device = \"gpu\" set, using GPU despite failed self-check")
+            self.session, self.device = best[1], "gpu"
+        else:
+            print("GPU gives wrong results on this computer; using CPU")
 
     @staticmethod
     def _compare(a, b) -> float:
