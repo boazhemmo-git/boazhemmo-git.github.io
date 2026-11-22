@@ -5,6 +5,7 @@ retain_days = 14        # snapshots older than this are deleted (0 = keep foreve
 
 [detector]
 model = "yolox_s"       # "yolox_s" (accurate) | "yolox_tiny" (fast, confuses dogs/cats) | path to .onnx
+device = "auto"         # "auto" uses the GPU if onnxruntime-directml is installed
 confidence = 0.45       # raise if you get false alerts, lower if it misses distant subjects
 classes = ["person", "dog", "cat", "bird", "horse", "sheep", "cow"]
 

@@ -39,11 +39,16 @@ DEFAULT_CLASSES = ["person", "dog", "cat", "bird", "horse", "sheep", "cow"]
 # ---------------------------------------------------------------- capture
 
 class LiveSource:
-    """Keeps only the newest frame of a live stream, reconnecting on failure."""
+    """Keeps only the newest frame of a live stream, reconnecting on failure.
+
+    Every packet must be decoded (later frames depend on earlier ones), but only
+    frames the analyser will actually use are converted to images.
+    """
 
     def __init__(self, url: str, stop: threading.Event):
         self.url, self.stop = url, stop
         self._frame, self._seq, self._lock = None, 0, threading.Lock()
+        self._want = True  # analyser is ready for a new frame
         threading.Thread(target=self._run, daemon=True).start()
 
     def _run(self):
@@ -52,12 +57,16 @@ class LiveSource:
             if not cap.isOpened():
                 print(f"[capture] cannot open {redact(self.url)}; retrying in 5s")
             while cap.isOpened() and not self.stop.is_set():
-                ok, frame = cap.read()
+                ok = cap.grab()
+                if ok and self._want:
+                    ok, frame = cap.retrieve()
+                    if ok:
+                        with self._lock:
+                            self._frame, self._seq = frame, self._seq + 1
+                            self._want = False
                 if not ok:
                     print(f"[capture] lost {redact(self.url)}; reconnecting")
                     break
-                with self._lock:
-                    self._frame, self._seq = frame, self._seq + 1
             cap.release()
             self.stop.wait(5)
 
@@ -70,6 +79,7 @@ class LiveSource:
             if frame is not None and seq != last:
                 last = seq
                 yield frame, start
+                self._want = True  # the next grabbed frame is the freshest one
             self.stop.wait(max(0.0, 1.0 / fps - (time.time() - start)))
 
 
@@ -331,7 +341,8 @@ def main():
         resolve_model(det_cfg.get("model", "yolox_s"), HERE / "models"),
         det_cfg.get("classes", DEFAULT_CLASSES),
         confidence=det_cfg.get("confidence", 0.45),
-        threads=det_cfg.get("threads", 0))
+        threads=det_cfg.get("threads", 0),
+        device=det_cfg.get("device", "auto"))
     tuning = cfg.get("tuning", {})
     unknown = set(tuning) - {f.name for f in fields(Settings)}
     if unknown:
@@ -356,7 +367,8 @@ def main():
         server = ThreadingHTTPServer((host, port), make_handler(sink, names))
         threading.Thread(target=server.serve_forever, daemon=True).start()
         print(f"dashboard: http://{host}:{port}/")
-    print(f"watching {len(cameras)} camera(s) for: {', '.join(detector.labels)}")
+    print(f"watching {len(cameras)} camera(s) for: {', '.join(detector.labels)} "
+          f"(detector on {detector.device.upper()})")
 
     try:
         next_prune = time.time() + 6 * 3600

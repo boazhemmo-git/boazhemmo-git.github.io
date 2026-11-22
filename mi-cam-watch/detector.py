@@ -6,6 +6,7 @@ first use and verified against a pinned SHA-256.
 from __future__ import annotations
 
 import hashlib
+import threading
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,17 +74,44 @@ def resolve_model(model: str, cache_dir: Path) -> Path:
 
 class YoloxDetector:
     def __init__(self, model_path: Path, labels: list[str], confidence: float = 0.45,
-                 nms_iou: float = 0.45, threads: int = 0):
+                 nms_iou: float = 0.45, threads: int = 0, device: str = "auto"):
+        """`device`: "auto" uses a DirectML GPU when onnxruntime-directml is
+        installed and falls back to the CPU; "cpu" or "gpu" force one."""
         import onnxruntime as ort
 
         unknown = set(labels) - set(COCO)
         if unknown:
             raise ValueError(f"unknown class names: {sorted(unknown)}")
-        opts = ort.SessionOptions()
-        if threads:
-            opts.intra_op_num_threads = threads
-        self.session = ort.InferenceSession(str(model_path), opts,
-                                            providers=["CPUExecutionProvider"])
+        if device not in ("auto", "cpu", "gpu"):
+            raise ValueError(f"device must be auto, cpu or gpu, not {device!r}")
+        has_gpu = "DmlExecutionProvider" in ort.get_available_providers()
+        if device == "gpu" and not has_gpu:
+            raise RuntimeError("device = \"gpu\" needs onnxruntime-directml "
+                               "(pip uninstall onnxruntime; pip install onnxruntime-directml)")
+        self.session, self.device = None, "cpu"
+        if has_gpu and device != "cpu":
+            # DirectML requires these settings and allows one Run at a time per
+            # session; self._lock below serialises the cameras' calls.
+            opts = ort.SessionOptions()
+            opts.enable_mem_pattern = False
+            opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+            try:
+                self.session = ort.InferenceSession(
+                    str(model_path), opts,
+                    providers=["DmlExecutionProvider", "CPUExecutionProvider"])
+                self.device = "gpu"
+            except Exception as e:
+                if device == "gpu":
+                    raise
+                print(f"GPU unavailable ({type(e).__name__}: {e}); using CPU")
+        if self.session is None:
+            opts = ort.SessionOptions()
+            if threads:
+                opts.intra_op_num_threads = threads
+            self.session = ort.InferenceSession(str(model_path), opts,
+                                                providers=["CPUExecutionProvider"])
+        # Serialising calls costs nothing measurable on CPU and is required on GPU.
+        self._lock = threading.Lock()
         inp = self.session.get_inputs()[0]
         self.input_name = inp.name
         self.size = (int(inp.shape[2]), int(inp.shape[3]))  # h, w
@@ -112,7 +140,8 @@ class YoloxDetector:
         canvas[: resized.shape[0], : resized.shape[1]] = resized
         blob = canvas.transpose(2, 0, 1)[None].astype(np.float32)
 
-        out = self.session.run(None, {self.input_name: blob})[0][0]
+        with self._lock:
+            out = self.session.run(None, {self.input_name: blob})[0][0]
         scores = out[:, 4:5] * out[:, 5:][:, self.class_ids]
         best = scores.argmax(1)
         conf = scores[np.arange(len(best)), best]
