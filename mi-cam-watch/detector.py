@@ -38,6 +38,9 @@ COCO = [n for chunk in COCO.split("|") for n in ([chunk] if " " in chunk and chu
 assert len(COCO) == 80
 
 
+GPU_TOLERANCE = 0.02  # max allowed score difference between GPU and CPU
+
+
 @dataclass
 class Detection:
     box: tuple[float, float, float, float]  # x1, y1, x2, y2 in frame pixels
@@ -88,7 +91,12 @@ class YoloxDetector:
         if device == "gpu" and not has_gpu:
             raise RuntimeError("device = \"gpu\" needs onnxruntime-directml "
                                "(pip uninstall onnxruntime; pip install onnxruntime-directml)")
-        self.session, self.device = None, "cpu"
+        cpu_opts = ort.SessionOptions()
+        if threads:
+            cpu_opts.intra_op_num_threads = threads
+        self.session = ort.InferenceSession(str(model_path), cpu_opts,
+                                            providers=["CPUExecutionProvider"])
+        self.device = "cpu"
         if has_gpu and device != "cpu":
             # DirectML requires these settings and allows one Run at a time per
             # session; self._lock below serialises the cameras' calls.
@@ -96,20 +104,24 @@ class YoloxDetector:
             opts.enable_mem_pattern = False
             opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
             try:
-                self.session = ort.InferenceSession(
+                gpu = ort.InferenceSession(
                     str(model_path), opts,
                     providers=["DmlExecutionProvider", "CPUExecutionProvider"])
-                self.device = "gpu"
+                diff = self._compare(self.session, gpu)
             except Exception as e:
                 if device == "gpu":
                     raise
                 print(f"GPU unavailable ({type(e).__name__}: {e}); using CPU")
-        if self.session is None:
-            opts = ort.SessionOptions()
-            if threads:
-                opts.intra_op_num_threads = threads
-            self.session = ort.InferenceSession(str(model_path), opts,
-                                                providers=["CPUExecutionProvider"])
+            else:
+                # Some GPU drivers silently compute wrong results for this model,
+                # so only trust the GPU if it agrees with the CPU.
+                if diff <= GPU_TOLERANCE or device == "gpu":
+                    self.session, self.device = gpu, "gpu"
+                    print(f"GPU self-check: scores differ from CPU by at most {diff:.4f}"
+                          + ("" if diff <= GPU_TOLERANCE else " - forced GPU anyway"))
+                else:
+                    print(f"GPU self-check FAILED: scores differ from CPU by up to "
+                          f"{diff:.2f}; using CPU")
         # Serialising calls costs nothing measurable on CPU and is required on GPU.
         self._lock = threading.Lock()
         inp = self.session.get_inputs()[0]
@@ -128,6 +140,21 @@ class YoloxDetector:
             strides.append(np.full((gh * gw, 1), s))
         self._grid = np.concatenate(grids).astype(np.float32)
         self._stride = np.concatenate(strides).astype(np.float32)
+
+    @staticmethod
+    def _compare(a, b) -> float:
+        """Largest difference in objectness/class scores between two sessions on
+        the same fixed test image."""
+        inp = a.get_inputs()[0]
+        h, w = int(inp.shape[2]), int(inp.shape[3])
+        rng = np.random.default_rng(0)
+        img = cv2.GaussianBlur(rng.integers(0, 255, (h, w, 3), dtype=np.uint8), (0, 0), 3)
+        cv2.rectangle(img, (w // 3, h // 4), (w // 2, h - h // 8), (40, 40, 200), -1)
+        cv2.circle(img, (w // 2 + w // 8, h // 3), h // 10, (220, 220, 220), -1)
+        blob = img.transpose(2, 0, 1)[None].astype(np.float32)
+        out_a = a.run(None, {inp.name: blob})[0][0]
+        out_b = b.run(None, {inp.name: blob})[0][0]
+        return float(np.abs(out_a[:, 4:] - out_b[:, 4:]).max())
 
     def detect(self, frame: np.ndarray, best_seen: dict | None = None) -> list[Detection]:
         """`best_seen`, if given, is updated with the highest score per label seen in
