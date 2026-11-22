@@ -285,10 +285,19 @@ ROTATIONS = {0: None, 90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180,
 def run_camera(name, url, pipeline, sink, fps, stop, rotate=0):
     is_file = "://" not in url
     frames = file_frames(url, fps, stop) if is_file else LiveSource(url, stop).frames(fps)
+    next_stats = time.time() + 30
     for frame, t in frames:
         if ROTATIONS[rotate] is not None:
             frame = cv2.rotate(frame, ROTATIONS[rotate])
         events = pipeline.process(frame, t)
+        if time.time() >= next_stats and not is_file:
+            st = pipeline.stats
+            top = sorted(st["best"].items(), key=lambda kv: -kv[1])[:2]
+            seen = ", ".join(f"{k} {v:.2f}" for k, v in top) or "nothing (no motion)"
+            print(f"[stats] {name}: {st['frames'] / 30:.1f} frames/s analysed, "
+                  f"motion in {st['motion']}, detector saw: {seen}")
+            pipeline.stats = {"frames": 0, "motion": 0, "detector": 0, "best": {}}
+            next_stats = time.time() + 30
         for ev in events:
             sink.emit(name, ev, frame, time.time())
         if not is_file:

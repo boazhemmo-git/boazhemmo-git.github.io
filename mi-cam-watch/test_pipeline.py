@@ -20,7 +20,7 @@ class ScriptedDetector:
     def __init__(self):
         self.boxes, self.calls = [], 0
 
-    def detect(self, frame):
+    def detect(self, frame, best_seen=None):
         self.calls += 1
         return [Detection(b, label, 0.9) for b, label in self.boxes]
 

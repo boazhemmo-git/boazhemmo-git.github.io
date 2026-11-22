@@ -101,7 +101,9 @@ class YoloxDetector:
         self._grid = np.concatenate(grids).astype(np.float32)
         self._stride = np.concatenate(strides).astype(np.float32)
 
-    def detect(self, frame: np.ndarray) -> list[Detection]:
+    def detect(self, frame: np.ndarray, best_seen: dict | None = None) -> list[Detection]:
+        """`best_seen`, if given, is updated with the highest score per label seen in
+        this frame, including scores below the confidence threshold."""
         ih, iw = self.size
         h, w = frame.shape[:2]
         r = min(ih / h, iw / w)
@@ -114,6 +116,10 @@ class YoloxDetector:
         scores = out[:, 4:5] * out[:, 5:][:, self.class_ids]
         best = scores.argmax(1)
         conf = scores[np.arange(len(best)), best]
+        if best_seen is not None:
+            per_label = scores.max(0)
+            for i, name in enumerate(self.labels):
+                best_seen[name] = max(best_seen.get(name, 0.0), float(per_label[i]))
         keep = conf >= self.confidence
         if not keep.any():
             return []

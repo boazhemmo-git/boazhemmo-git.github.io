@@ -80,6 +80,8 @@ class Pipeline:
         self._next_id = 1
         self._frames = 0
         self._last_alert: dict[str, float] = {}
+        # Diagnostics since the last reset_stats(): what each stage saw.
+        self.stats = {"frames": 0, "motion": 0, "detector": 0, "best": {}}
         self.tracks_view: list[tuple[tuple, str, bool]] = []  # for drawing: box, label, alerted
 
     def _motion_mask(self, frame: np.ndarray) -> np.ndarray:
@@ -93,6 +95,7 @@ class Pipeline:
         """Feed one frame (BGR) with its timestamp in seconds. Returns new alerts."""
         mask = self._motion_mask(frame)
         self._frames += 1
+        self.stats["frames"] += 1
         if self._frames <= self.s.warmup_frames:
             return []
 
@@ -101,7 +104,9 @@ class Pipeline:
             self.tracks_view = []
             return []
         # While tracks exist keep detecting, so a pause mid-walk does not split the track.
-        dets = self.detector.detect(frame) if (moving or self._tracks) else []
+        dets = self.detector.detect(frame, self.stats["best"])
+        self.stats["motion"] += moving
+        self.stats["detector"] += 1
         self._associate(dets, mask, frame.shape[1])
 
         events = []
