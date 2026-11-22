@@ -29,3 +29,4 @@ port = 8765
 [[camera]]
 name = "yard"
 url = "rtsp://127.0.0.1:8554/yard"
+# rotate = 90          # turn the picture clockwise: 0, 90, 180 or 270

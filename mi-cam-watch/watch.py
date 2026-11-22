@@ -24,6 +24,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+# Camera streams often start mid-GOP; FFmpeg then prints a warning per frame until
+# the next keyframe. Those drown out our own output, so silence FFmpeg.
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
 import cv2  # noqa: E402
 
 from detector import YoloxDetector, resolve_model  # noqa: E402
@@ -222,10 +225,16 @@ def make_handler(sink: EventSink, cameras: list[str]):
 
 # ---------------------------------------------------------------- main
 
-def run_camera(name, url, pipeline, sink, fps, stop):
+ROTATIONS = {0: None, 90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180,
+             270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+
+
+def run_camera(name, url, pipeline, sink, fps, stop, rotate=0):
     is_file = "://" not in url
     frames = file_frames(url, fps, stop) if is_file else LiveSource(url, stop).frames(fps)
     for frame, t in frames:
+        if ROTATIONS[rotate] is not None:
+            frame = cv2.rotate(frame, ROTATIONS[rotate])
         events = pipeline.process(frame, t)
         for ev in events:
             sink.emit(name, ev, frame, time.time())
@@ -249,6 +258,9 @@ def main():
     if not cameras:
         raise SystemExit("config has no [[camera]] entries")
     names = [c["name"] for c in cameras]
+    for c in cameras:
+        if c.get("rotate", 0) not in ROTATIONS:
+            raise SystemExit(f"camera {c['name']!r}: rotate must be 0, 90, 180 or 270")
     if len(set(names)) != len(names) or any("/" in n or n.startswith(".") for n in names):
         raise SystemExit("camera names must be unique and must not contain '/'")
 
@@ -270,7 +282,8 @@ def main():
     sink.prune()
     stop = threading.Event()
     threads = [threading.Thread(target=run_camera, daemon=True, args=(
-        c["name"], c["url"], Pipeline(detector, Settings(**tuning)), sink, fps, stop))
+        c["name"], c["url"], Pipeline(detector, Settings(**tuning)), sink, fps, stop,
+        c.get("rotate", 0)))
         for c in cameras]
     for th in threads:
         th.start()
