@@ -176,12 +176,52 @@ def draw(frame, tracks):
 # ---------------------------------------------------------------- dashboard
 
 PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<meta http-equiv=refresh content=10><title>mi-cam-watch</title>
+<title>mi-cam-watch</title>
 <style>body{font:15px system-ui;margin:16px;background:#111;color:#eee}h2{font-size:16px;margin:20px 0 8px}
 .g{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
-figure{margin:0;background:#1c1c1c;border-radius:8px;overflow:hidden}img{width:100%%;display:block}
+figure{margin:0;background:#1c1c1c;border-radius:8px;overflow:hidden}img{width:100%;display:block}
 figcaption{padding:6px 10px}small{color:#999}</style>
-<h2>Live</h2><div class=g>%s</div><h2>Recent events</h2><div class=g>%s</div>"""
+<h2>Live</h2><div class=g>{{LIVE}}</div><h2>Recent events</h2><div class=g id=events><small>none yet</small></div>
+<script>
+// Swap each live picture only after the next one has fully loaded, so nothing flickers.
+for (const img of document.querySelectorAll("img.live")) {
+  const base = img.dataset.src;
+  const tick = () => {
+    const next = new Image();
+    next.onload = () => { img.src = next.src; setTimeout(tick, 1000); };
+    next.onerror = () => setTimeout(tick, 3000);
+    next.src = base + "?t=" + Date.now();
+  };
+  tick();
+}
+// Re-draw the events list only when a new event has arrived.
+let newest = null;
+async function loadEvents() {
+  try {
+    const list = await (await fetch("/events.json", {cache: "no-store"})).json();
+    const key = list.length ? list[0].image : "";
+    if (key !== newest) {
+      newest = key;
+      const box = document.getElementById("events");
+      box.replaceChildren();
+      if (!list.length) box.innerHTML = "<small>none yet</small>";
+      for (const r of list) {
+        const src = "/events/" + r.image.split("/").map(encodeURIComponent).join("/");
+        const fig = document.createElement("figure");
+        const a = document.createElement("a"); a.href = src;
+        const img = document.createElement("img"); img.loading = "lazy"; img.src = src;
+        const cap = document.createElement("figcaption");
+        const small = document.createElement("small");
+        cap.append(r.label + " \u00b7 " + r.camera, document.createElement("br"), small);
+        small.textContent = r.time + " \u00b7 " + r.score;
+        a.append(img); fig.append(a, cap); box.append(fig);
+      }
+    }
+  } catch (e) {}
+  setTimeout(loadEvents, 5000);
+}
+loadEvents();
+</script>"""
 
 
 def make_handler(sink: EventSink, cameras: list[str]):
@@ -201,15 +241,13 @@ def make_handler(sink: EventSink, cameras: list[str]):
             path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
             if path == "/":
                 e = html.escape
-                live = "".join(f'<figure><img src="/live/{e(urllib.parse.quote(c))}.jpg">'
-                               f"<figcaption>{e(c)}</figcaption></figure>" for c in cameras)
-                evs = "".join(
-                    f'<figure><a href="/events/{e(urllib.parse.quote(r["image"]))}">'
-                    f'<img loading=lazy src="/events/{e(urllib.parse.quote(r["image"]))}"></a>'
-                    f'<figcaption>{e(r["label"])} · {e(r["camera"])}<br>'
-                    f'<small>{e(r["time"])} · {r["score"]}</small></figcaption></figure>'
-                    for r in sink.recent()) or "<small>none yet</small>"
-                return self._send((PAGE % (live, evs)).encode(), "text/html; charset=utf-8")
+                live = "".join(
+                    f'<figure><img class=live data-src="/live/{e(urllib.parse.quote(c))}.jpg">'
+                    f"<figcaption>{e(c)}</figcaption></figure>" for c in cameras)
+                return self._send(PAGE.replace("{{LIVE}}", live).encode(),
+                                  "text/html; charset=utf-8")
+            if path == "/events.json":
+                return self._send(json.dumps(sink.recent()).encode(), "application/json")
             if path.startswith("/live/") and path.endswith(".jpg"):
                 jpg = sink.live.get(path[6:-4])
                 if jpg:
