@@ -2,6 +2,7 @@
 
 fps = 4                 # frames analysed per second, per camera
 retain_days = 14        # snapshots older than this are deleted (0 = keep forever)
+max_events_mb = 2000    # oldest snapshots are deleted beyond this total size (0 = no limit)
 
 [detector]
 model = "yolox_s"       # "yolox_s" (accurate) | "yolox_tiny" (fast, confuses dogs/cats) | path to .onnx

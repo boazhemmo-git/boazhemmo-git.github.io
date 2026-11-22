@@ -52,12 +52,19 @@ class LiveSource:
         threading.Thread(target=self._run, daemon=True).start()
 
     def _run(self):
+        # Back off 5 s -> 10 -> 20 -> 40 -> 60 s while a camera stays down, so a
+        # flaky camera is not flooded with connection attempts (some models only
+        # accept a few, and abandoned ones hold a slot for minutes).
+        delay = 5
         while not self.stop.is_set():
             cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
             if not cap.isOpened():
-                print(f"[capture] cannot open {redact(self.url)}; retrying in 5s")
+                print(f"[capture] cannot open {redact(self.url)}; retrying in {delay}s")
+            got_frame = False
             while cap.isOpened() and not self.stop.is_set():
                 ok = cap.grab()
+                if ok and not got_frame:
+                    got_frame, delay = True, 5
                 if ok and self._want:
                     ok, frame = cap.retrieve()
                     if ok:
@@ -68,7 +75,9 @@ class LiveSource:
                     print(f"[capture] lost {redact(self.url)}; reconnecting")
                     break
             cap.release()
-            self.stop.wait(5)
+            self.stop.wait(delay)
+            if not got_frame:
+                delay = min(delay * 2, 60)
 
     def frames(self, fps: float):
         last = 0
@@ -109,8 +118,10 @@ def redact(url: str) -> str:
 # ---------------------------------------------------------------- events
 
 class EventSink:
-    def __init__(self, out_dir: Path, notify_cfg: dict, retain_days: float):
+    def __init__(self, out_dir: Path, notify_cfg: dict, retain_days: float,
+                 max_mb: float = 2000):
         self.dir, self.notify_cfg, self.retain_days = out_dir, notify_cfg, retain_days
+        self.max_bytes = max_mb * 1024 * 1024
         self.dir.mkdir(parents=True, exist_ok=True)
         self.log = self.dir / "events.jsonl"
         self._lock = threading.Lock()
@@ -139,12 +150,37 @@ class EventSink:
         return [json.loads(line) for line in reversed(lines)]
 
     def prune(self):
-        if self.retain_days <= 0:
-            return
-        cutoff = time.time() - self.retain_days * 86400
+        """Delete snapshots older than retain_days, then the oldest ones until the
+        total is under max_mb, and drop log lines whose snapshot is gone."""
+        files = []
         for p in self.dir.glob("*/*.jpg"):
-            if p.stat().st_mtime < cutoff:
+            try:
+                st = p.stat()
+                files.append((st.st_mtime, st.st_size, p))
+            except OSError:
+                continue
+        files.sort()
+        cutoff = time.time() - self.retain_days * 86400 if self.retain_days > 0 else None
+        total = sum(size for _, size, _ in files)
+        removed = 0
+        for mtime, size, p in files:
+            if not ((cutoff and mtime < cutoff) or (self.max_bytes > 0 and total > self.max_bytes)):
+                break
+            try:
                 p.unlink()
+                total -= size
+                removed += 1
+            except OSError:
+                pass
+        if removed:
+            with self._lock:
+                if self.log.exists():
+                    kept = [line for line in self.log.read_text(encoding="utf-8").splitlines()
+                            if line.strip() and (self.dir / json.loads(line)["image"]).exists()]
+                    tmp = self.log.with_suffix(".tmp")
+                    tmp.write_text("".join(k + "\n" for k in kept), encoding="utf-8")
+                    tmp.replace(self.log)
+            print(f"[prune] removed {removed} old snapshot(s); {total / 1048576:.0f} MB kept")
 
     def _notify(self, rec: dict, image: Path):
         title = f"{rec['label'].capitalize()} at {rec['camera']}"
@@ -351,7 +387,7 @@ def main():
 
     base = cfg_path.resolve().parent
     sink = EventSink(base / cfg.get("events_dir", "events"), cfg.get("notify", {}),
-                     cfg.get("retain_days", 14))
+                     cfg.get("retain_days", 14), cfg.get("max_events_mb", 2000))
     sink.prune()
     stop = threading.Event()
     threads = [threading.Thread(target=run_camera, daemon=True, args=(
@@ -371,12 +407,12 @@ def main():
           f"(detector on {detector.device.upper()})")
 
     try:
-        next_prune = time.time() + 6 * 3600
+        next_prune = time.time() + 600
         while any(th.is_alive() for th in threads):
             time.sleep(0.5)
             if time.time() > next_prune:
                 sink.prune()
-                next_prune = time.time() + 6 * 3600
+                next_prune = time.time() + 600
     except KeyboardInterrupt:
         pass
     finally:
