@@ -33,7 +33,8 @@ Pi 4/5). It cannot run on GitHub Pages or any other static host.
    pip install -r requirements.txt
    cp config.example.toml config.toml     # then edit camera names/URLs
    ```
-3. **Run:** `python watch.py` — dashboard at <http://127.0.0.1:8765/>.
+3. **Run:** `python watch.py` (on Windows, double-click `start.bat` instead; it also
+   silences FFmpeg's decoder warnings) — dashboard at <http://127.0.0.1:8765/>.
    The model (~35 MB) is downloaded and checksum-verified on first start.
 
 Snapshots land in `events/<camera>/`, with a log in `events/events.jsonl`.

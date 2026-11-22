@@ -181,8 +181,7 @@ PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=
 .g{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 figure{margin:0;background:#1c1c1c;border-radius:8px;overflow:hidden}img{width:100%;display:block}
 figcaption{padding:6px 10px}small{color:#999}
-img.live{height:300px;object-fit:contain;background:#000;cursor:zoom-in}
-@media(min-width:600px){figure.wide{grid-column:span 2}}
+img.live{aspect-ratio:4/3;height:auto;object-fit:contain;background:#000;cursor:zoom-in}
 #big{position:fixed;inset:0;background:#000e;display:none;cursor:zoom-out;z-index:9}
 #big img{width:100%;height:100%;object-fit:contain}</style>
 <h2>Live</h2><div class=g>{{LIVE}}</div><div id=big><img alt=""></div><h2>Recent events</h2><div class=g id=events><small>none yet</small></div>
@@ -201,8 +200,6 @@ for (const img of document.querySelectorAll("img.live")) {
     const next = new Image();
     next.onload = () => {
       img.src = next.src;
-      // Landscape cameras get two grid slots so they are not shrunk next to portrait ones.
-      img.parentElement.classList.toggle("wide", next.naturalWidth > next.naturalHeight);
       if (enlarged === img) bigImg.src = next.src;
       setTimeout(tick, 1000);
     };
