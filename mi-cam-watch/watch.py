@@ -180,15 +180,32 @@ PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=
 <style>body{font:15px system-ui;margin:16px;background:#111;color:#eee}h2{font-size:16px;margin:20px 0 8px}
 .g{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 figure{margin:0;background:#1c1c1c;border-radius:8px;overflow:hidden}img{width:100%;display:block}
-figcaption{padding:6px 10px}small{color:#999}</style>
-<h2>Live</h2><div class=g>{{LIVE}}</div><h2>Recent events</h2><div class=g id=events><small>none yet</small></div>
+figcaption{padding:6px 10px}small{color:#999}
+img.live{height:300px;object-fit:contain;background:#000;cursor:zoom-in}
+@media(min-width:600px){figure.wide{grid-column:span 2}}
+#big{position:fixed;inset:0;background:#000e;display:none;cursor:zoom-out;z-index:9}
+#big img{width:100%;height:100%;object-fit:contain}</style>
+<h2>Live</h2><div class=g>{{LIVE}}</div><div id=big><img alt=""></div><h2>Recent events</h2><div class=g id=events><small>none yet</small></div>
 <script>
+// Click a camera to see it full-screen; click again or press Esc to close.
+const big = document.getElementById("big"), bigImg = big.querySelector("img");
+let enlarged = null;
+const closeBig = () => { enlarged = null; big.style.display = "none"; };
+big.onclick = closeBig;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeBig(); });
 // Swap each live picture only after the next one has fully loaded, so nothing flickers.
 for (const img of document.querySelectorAll("img.live")) {
+  img.onclick = () => { enlarged = img; bigImg.src = img.src; big.style.display = "block"; };
   const base = img.dataset.src;
   const tick = () => {
     const next = new Image();
-    next.onload = () => { img.src = next.src; setTimeout(tick, 1000); };
+    next.onload = () => {
+      img.src = next.src;
+      // Landscape cameras get two grid slots so they are not shrunk next to portrait ones.
+      img.parentElement.classList.toggle("wide", next.naturalWidth > next.naturalHeight);
+      if (enlarged === img) bigImg.src = next.src;
+      setTimeout(tick, 1000);
+    };
     next.onerror = () => setTimeout(tick, 3000);
     next.src = base + "?t=" + Date.now();
   };
