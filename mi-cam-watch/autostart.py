@@ -112,7 +112,13 @@ def task_xml() -> str:
 
 
 def sh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(list(args), check=check, text=True, capture_output=True)
+    r = subprocess.run(list(args), text=True, capture_output=True)
+    if check and r.returncode:
+        msg = (r.stderr or r.stdout).strip()
+        hint = ("\nIs it installed? Run: python autostart.py install --go2rtc <path>"
+                if "cannot find" in msg.lower() else "")
+        raise SystemExit(f"{args[0]} failed: {msg}{hint}")
+    return r
 
 
 def require_admin() -> None:
@@ -157,7 +163,8 @@ def main() -> None:
         if not go2rtc.is_file() and not args.dry_run:
             raise SystemExit(f"{go2rtc} not found")
         if not (HERE / "config.toml").is_file() and not args.dry_run:
-            raise SystemExit("config.toml not found next to autostart.py")
+            raise SystemExit(f"config.toml not found in {HERE}. Run autostart.py from the "
+                             "mi-cam-watch folder (cd C:\\camwatch\\mi-cam-watch).")
         write_files(go2rtc)
         if args.dry_run:
             print(f"wrote {RUN_ALL.name}, {RUN_GO2RTC.name}, {TASK_XML.name}")
