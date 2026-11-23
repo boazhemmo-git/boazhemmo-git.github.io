@@ -4,3 +4,7 @@ go2rtc.yaml
 events/
 models/
 __pycache__/
+run-all.bat
+run-go2rtc.bat
+autostart-task.xml
+logs/

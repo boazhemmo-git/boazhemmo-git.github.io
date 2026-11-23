@@ -39,6 +39,35 @@ Pi 4/5). It cannot run on GitHub Pages or any other static host.
 
 Snapshots land in `events/<camera>/`, with a log in `events/events.jsonl`.
 
+## Run at Windows start-up
+
+First restrict go2rtc to this computer: its web UI has no password and can
+read your Xiaomi token and edit its config. Put this at the top of `go2rtc.yaml`:
+
+```yaml
+api:
+  listen: "127.0.0.1:1984"
+rtsp:
+  listen: "127.0.0.1:8554"
+webrtc:
+  listen: "127.0.0.1:8555"
+```
+
+Then, in a Command Prompt opened with *Run as administrator*:
+
+```
+python autostart.py install --go2rtc C:\go2rtc\go2rtc_win64\go2rtc.exe
+python autostart.py start
+```
+
+Both programs then start at every boot, before anyone logs in, restart if they
+exit, and write to `logs\watch.log` and `logs\go2rtc.log`. Don't also run
+`start.bat` or `go2rtc.exe` by hand while the task is running.
+`python autostart.py stop` / `status` / `remove` manage it.
+
+For a laptop: set it to never sleep when plugged in and to do nothing when the
+lid closes, and enable a battery charge limit if the manufacturer offers one.
+
 ## Testing without a camera
 
 A camera `url` may be a video file path; the file is processed start to finish

@@ -59,7 +59,7 @@ class LiveSource:
         while not self.stop.is_set():
             cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
             if not cap.isOpened():
-                print(f"[capture] cannot open {redact(self.url)}; retrying in {delay}s")
+                log(f"[capture] cannot open {redact(self.url)}; retrying in {delay}s")
             got_frame = False
             while cap.isOpened() and not self.stop.is_set():
                 ok = cap.grab()
@@ -72,7 +72,7 @@ class LiveSource:
                             self._frame, self._seq = frame, self._seq + 1
                             self._want = False
                 if not ok:
-                    print(f"[capture] lost {redact(self.url)}; reconnecting")
+                    log(f"[capture] lost {redact(self.url)}; reconnecting")
                     break
             cap.release()
             self.stop.wait(delay)
@@ -110,6 +110,10 @@ def file_frames(path: str, fps: float, stop: threading.Event):
     cap.release()
 
 
+def log(msg: str) -> None:
+    print(time.strftime("%m-%d %H:%M:%S ") + msg, flush=True)
+
+
 def redact(url: str) -> str:
     p = urllib.parse.urlsplit(url)
     return url.replace(p.netloc, p.netloc.split("@")[-1]) if "@" in p.netloc else url
@@ -140,7 +144,7 @@ class EventSink:
                "score": round(event.score, 2), "image": rel}
         with self._lock, self.log.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
-        print(f"[event] {rec['time']} {camera}: {event.label} ({rec['score']}) -> {rel}")
+        log(f"[event] {rec['time']} {camera}: {event.label} ({rec['score']}) -> {rel}")
         threading.Thread(target=self._notify, args=(rec, path), daemon=True).start()
 
     def recent(self, n: int = 60) -> list[dict]:
@@ -180,7 +184,7 @@ class EventSink:
                     tmp = self.log.with_suffix(".tmp")
                     tmp.write_text("".join(k + "\n" for k in kept), encoding="utf-8")
                     tmp.replace(self.log)
-            print(f"[prune] removed {removed} old snapshot(s); {total / 1048576:.0f} MB kept")
+            log(f"[prune] removed {removed} old snapshot(s); {total / 1048576:.0f} MB kept")
 
     def _notify(self, rec: dict, image: Path):
         title = f"{rec['label'].capitalize()} at {rec['camera']}"
@@ -208,7 +212,7 @@ class EventSink:
                     headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}),
                     timeout=15)
         except Exception as e:  # a failed push must never stop detection
-            print(f"[notify] failed: {type(e).__name__}: {e}")
+            log(f"[notify] failed: {type(e).__name__}: {e}")
 
 
 def draw(frame, tracks):
@@ -340,7 +344,7 @@ def run_camera(name, url, pipeline, sink, fps, stop, rotate=0):
             st = pipeline.stats
             top = sorted(st["best"].items(), key=lambda kv: -kv[1])[:2]
             seen = ", ".join(f"{k} {v:.2f}" for k, v in top) or "nothing (no motion)"
-            print(f"[stats] {name}: {st['frames'] / 30:.1f} frames/s analysed, "
+            log(f"[stats] {name}: {st['frames'] / 30:.1f} frames/s analysed, "
                   f"motion in {st['motion']}, detector saw: {seen}")
             pipeline.stats = {"frames": 0, "motion": 0, "detector": 0, "best": {}}
             next_stats = time.time() + 30
