@@ -1,0 +1,10 @@
+# Copy to go2rtc.yaml (git-ignored). Easiest path: start go2rtc, open
+# http://localhost:1984 -> Add -> Xiaomi -> log in, and let it write the
+# `xiaomi:` token block and the stream URLs for you. Result looks like:
+
+rtsp:
+  listen: "127.0.0.1:8554"      # local only; mi-cam-watch runs on the same machine
+
+streams:
+  # xiaomi://<account id>:<region>@<camera LAN IP>?did=<device id>&model=<model>
+  yard: xiaomi://1234567890:de@192.168.1.123?did=9876543210&model=isa.camera.hlc7

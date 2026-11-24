@@ -1,0 +1,10 @@
+# Never commit these: this repository is published publicly by GitHub Pages.
+config.toml
+go2rtc.yaml
+events/
+models/
+__pycache__/
+run-all.bat
+run-go2rtc.bat
+autostart-task.xml
+logs/
