@@ -29,6 +29,10 @@ os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
 import cv2  # noqa: E402
 
+# OpenCV's own warnings ("Stream timeout triggered", "can't be used to capture
+# by name") repeat while a camera is down; our [capture] lines already say so.
+cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+
 from detector import YoloxDetector, resolve_model  # noqa: E402
 from pipeline import Pipeline, Settings  # noqa: E402
 
